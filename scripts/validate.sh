@@ -23,14 +23,16 @@ with open('/dev/kvm', 'rb+', buffering=0) as kvmFile:
     vmFd = fcntl.ioctl(kvmFile, 0xAE01, 0)
     os.close(vmFd)
 PY
-    driverPath=$(nix build .#checks.x86_64-linux.service.driver --no-link --print-out-paths)
     # Run fresh VMs even when the Nix build/test result is cached.
-    mkdir -p "${RUNNER_TEMP:?}/vm-results" "$RUNNER_TEMP/vm-work"
-    (
-      cd "$RUNNER_TEMP/vm-work"
-      "$driverPath/bin/nixos-test-driver" -o "$RUNNER_TEMP/vm-results" \
-        --junit-xml "$RUNNER_TEMP/vm-results/junit.xml"
-    ) 2>&1 | tee "$RUNNER_TEMP/vm-results/driver.log"
+    for testName in service user-service; do
+      driverPath=$(nix build ".#checks.x86_64-linux.$testName.driver" --no-link --print-out-paths)
+      mkdir -p "${RUNNER_TEMP:?}/vm-results/$testName" "$RUNNER_TEMP/vm-work/$testName"
+      (
+        cd "$RUNNER_TEMP/vm-work/$testName"
+        "$driverPath/bin/nixos-test-driver" -o "$RUNNER_TEMP/vm-results/$testName" \
+          --junit-xml "$RUNNER_TEMP/vm-results/$testName/junit.xml"
+      ) 2>&1 | tee "$RUNNER_TEMP/vm-results/$testName/driver.log"
+    done
     ;;
   *) echo 'Unknown suite' >&2; exit 1 ;;
 esac

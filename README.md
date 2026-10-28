@@ -1,6 +1,6 @@
 # MESL CLI for NixOS
 
-Packages MESL CLI, the upstream bundled Mihomo core, and `geoip.metadb` for `x86_64-linux` and `aarch64-linux`. The NixOS module runs one root-owned instance and installs `mesl-cli` on the system command path.
+Packages MESL CLI, the upstream bundled Mihomo core, and `geoip.metadb` for `x86_64-linux` and `aarch64-linux`. The NixOS module installs `mesl-cli` on the system command path and runs one instance, either as a configured user or as root.
 
 ## NixOS configuration
 
@@ -41,11 +41,14 @@ Create `mesl.nix` alongside `flake.nix` to import and configure the MESL module:
 
   services.mesl = {
     enable = true;
+    user = "yourusername";
     autoStart = false;
-    tun.enable = false;
+    tun.enable = true;
   };
 }
 ```
+
+Replace `yourusername` with an existing normal NixOS user declared in your configuration. User mode uses that account's existing `~/.config/mesl` profile and supports TUN without sudo. NixOS manages the capability wrapper and user service, so a separate Home Manager module is unnecessary.
 
 Merge the unfree predicate with your existing policy if you already permit other unfree packages. The MESL client distribution does not include an explicit license grant, so this package is conservatively marked unfree.
 
@@ -53,31 +56,40 @@ Merge the unfree predicate with your existing policy if you already permit other
 | -------------------------- | ------------------------- | ---------------------------------------------------------- |
 | `services.mesl.enable`     | `false`                   | Install the command and define `mesl.service`              |
 | `services.mesl.package`    | This repository's package | Override the client package                                |
+| `services.mesl.user`       | `null`                    | Existing normal user; `null` keeps the root system service |
 | `services.mesl.autoStart`  | `false`                   | Start at boot                                              |
 | `services.mesl.tun.enable` | `false`                   | Run with `--tun`, load `tun`, and permit TUN device access |
 
 ## Authentication and service management
 
-After rebuilding NixOS, authenticate interactively before starting the service:
+After rebuilding NixOS with `user = "yourusername"`, run commands as that user. When first enabling user-mode TUN, reboot once to refresh both your login session's and your systemd user manager's membership in the `mesl` group. Existing login credentials in `~/.config/mesl` are reused; otherwise authenticate before starting the service:
 
 ```sh
-sudo mesl-cli login
-sudo systemctl start mesl
-sudo mesl-cli status
-sudo mesl-cli node list
-sudo mesl-cli node auto
-sudo mesl-cli mode global
-sudo journalctl -u mesl -f
-sudo systemctl stop mesl
+mesl-cli login
+systemctl --user start mesl
+mesl-cli status
+mesl-cli node list
+mesl-cli node auto
+mesl-cli mode global
+journalctl --user -u mesl -f
+systemctl --user stop mesl
 ```
 
-The module's command defaults to `/var/lib/mesl`, shared with the service. Run administrative commands with `sudo`: the state directory is root-owned with mode `0700`, and new service files use mode `0600`. Credentials are created at runtime and never embedded in Nix expressions or the Nix store. Existing state under `/etc/mesl` or `~/.config/mesl` is not migrated automatically. An explicit `--data-dir` or `MESL_DATA_DIR` overrides the command's default; the service always passes `/var/lib/mesl` explicitly.
+The user service passes `--data-dir %h/.config/mesl`; ordinary CLI commands retain upstream's user-profile default. An explicit CLI `--data-dir` or `MESL_DATA_DIR` can select another profile, but the managed service continues to use `~/.config/mesl`. The service uses `UMask=0077`, and credentials are created at runtime rather than embedded in the Nix store.
 
-Use `systemctl start/stop/restart mesl` for the managed daemon rather than `mesl-cli up/down/daemon`. Do not start a second instance using the same ports. Use `systemctl stop mesl` before `sudo mesl-cli logout` if autostart is enabled.
+Use `systemctl --user start/stop/restart mesl` for the managed daemon. If you prefer manual operation, leave the service stopped and run `mesl-cli up --tun`, followed by `mesl-cli down` when finished. Do not start both instances at once: they share state and fixed ports. Stop the managed service before `mesl-cli logout`.
 
-Set `autoStart = true` after login to start at boot. Without valid credentials the service fails and retries every five seconds; inspect the journal to diagnose it. Turning autostart off removes the boot dependency; use `systemctl stop mesl` to stop an already running instance.
+Set `autoStart = true` after login to start at boot. In user mode the module enables NixOS-managed lingering for the selected account, so its user manager and MESL start without an interactive login. The unit only runs for that account. Your home directory must be available at boot; otherwise start the service after unlocking or mounting it. Without valid credentials the service fails and retries every five seconds. Turning autostart off removes the service's startup dependency; stop an already running instance explicitly. It does not forcibly disable lingering configured elsewhere.
 
-For machine-wide TUN routing, set `tun.enable = true` and rebuild. Both modes use a root system service. TUN mode gives the bundled core access to `/dev/net/tun` and host routing; it does not use a network namespace. Stopping the daemon lets MESL and Mihomo clean up their runtime state and routes.
+With user-mode TUN enabled, NixOS creates `/run/wrappers/bin/mesl-client` and `/run/wrappers/bin/mesl-mihomo` with `cap_net_admin+ep`, owned by root and executable only by root and the `mesl` group. The configured user is added to that group. The module's CLI launcher runs MESL through the client wrapper and points `MESL_CORE` at the core wrapper, so manual commands and the service use the same capabilities. Both processes run as your user with permission to administer host networking. MESL needs the matching capability to inspect Mihomo's socket descriptors under `/proc` when verifying controller ownership; granting it only to Mihomo causes misleading controller-port conflicts. Their source and binaries are unchanged. The service permits acquiring these file capabilities by leaving `NoNewPrivileges` disabled in this mode. Disabling TUN removes both wrappers and the module's group-membership grant.
+
+TUN affects host routing and uses `/dev/net/tun`; it does not use a network namespace. Stopping the daemon lets MESL and Mihomo clean up their runtime state and routes.
+
+### Root mode and switching modes
+
+Leaving `services.mesl.user = null` preserves the root system service and `/var/lib/mesl` profile. Use `sudo mesl-cli login`, `sudo mesl-cli status`, and `sudo systemctl start/stop/restart mesl` in that mode. Its command defaults to `/var/lib/mesl`; an explicit CLI data directory or environment setting can override it. Root mode does not install the capability wrapper.
+
+Before switching modes, stop the old service (`sudo systemctl stop mesl` for root mode, or `systemctl --user stop mesl` for user mode). Rebuild and then start the new service. Existing root-owned state is left intact; no profiles are moved or ownership changed automatically. Root mode does not automatically use `~/.config/mesl`, and user mode does not automatically import `/var/lib/mesl` or `/etc/mesl`.
 
 ## Ports and desktop proxy settings
 
@@ -91,7 +103,7 @@ MESL 2.0.3 hardcodes these local listeners:
 
 There is no configurable port option in this module yet. Ports are not forwarded, and firewall ports are not opened. Port conflicts must be resolved before starting the service.
 
-The system service passes `--no-proxy` so it does not attempt to change a GNOME session's proxy settings. Without TUN, configure applications manually, for example:
+The managed service passes `--no-proxy` so it does not attempt to change a GNOME session's proxy settings. Without TUN, configure applications manually, for example:
 
 ```sh
 export http_proxy=http://127.0.0.1:7688
@@ -111,7 +123,7 @@ nix run . -- version
 nix run . -- login
 ```
 
-The flake's package outputs permit this specific unfree package. Importing `package.nix` directly uses your own Nixpkgs unfree policy. The standalone command retains upstream state defaults (`~/.config/mesl` for normal users and `/etc/mesl` for root); only the NixOS module defaults to `/var/lib/mesl`.
+The flake's package outputs permit this specific unfree package. Importing `package.nix` directly uses your own Nixpkgs unfree policy. The standalone command retains upstream state defaults (`~/.config/mesl` for normal users and `/etc/mesl` for root); the NixOS module's root mode defaults to `/var/lib/mesl`. The standalone package does not create privileged wrappers; use the module-installed command for user-mode TUN.
 
 The package keeps the real CLI, core, and geodata together under `libexec/mesl`. Its command wrapper defaults `MESL_CORE` to the bundled executable; an explicit core argument or environment setting can override it. No files from the original local installation are required at runtime.
 
@@ -120,10 +132,11 @@ The package keeps the real CLI, core, and geodata together under `libexec/mesl`.
 ```sh
 nix flake check
 nix build .#checks.x86_64-linux.service
+nix build .#checks.x86_64-linux.user-service
 nix build .#checks.aarch64-linux.package
 ```
 
-The VM check needs a working NixOS test VM backend; native architecture builders or configured emulation are needed to execute checks for another architecture. Package checks run the real CLI's help/version and validate a minimal direct-only configuration with the bundled core. Module evaluation checks cover disabled, manual, autostart, and TUN settings. The VM uses a stub client, exercises restart and graceful shutdown, verifies state permissions, and creates a real TUN device. It does not authenticate with MESL or test subscription-based routing.
+The VM checks need a working NixOS test VM backend; native architecture builders or configured emulation are needed to execute checks for another architecture. Package checks run the real CLI's help/version and validate a minimal direct-only configuration with the bundled core. Module evaluation checks cover disabled, manual, autostart, and TUN settings. The root-service VM uses a stub client, exercises restart and graceful shutdown, verifies state permissions, and creates a real TUN device. The user-service VM checks TUN creation, controller socket inspection, manual startup, and wrapper access restrictions, including a regression check that fails with capabilities granted only to the core. Neither VM authenticates with MESL or tests subscription-based routing.
 
 For a real-account acceptance check:
 
