@@ -1,0 +1,120 @@
+name: Shared candidate validation
+on:
+  workflow_call:
+    inputs:
+      kind:
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  suites:
+    if: inputs.kind != 'heartbeat'
+    name: ${{ matrix.suite }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: amd64
+            runner: ubuntu-24.04
+          - suite: arm64
+            runner: ubuntu-24.04-arm
+          - suite: vm
+            runner: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: candidate
+          path: ${{ runner.temp }}/candidate
+      - run: python3 scripts/ci.py restore --repo "$RUNNER_TEMP/source" --artifact-dir "$RUNNER_TEMP/candidate"
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            system-features = nixos-test benchmark big-parallel kvm
+      - if: matrix.suite == 'vm'
+        run: sudo chmod a+rw /dev/kvm
+      - env:
+          SUITE: ${{ matrix.suite }}
+        working-directory: ${{ runner.temp }}/source
+        run: nix shell --inputs-from . nixpkgs#jujutsu nixpkgs#python3 --command bash scripts/validate.sh "$SUITE" "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: evidence-${{ matrix.suite }}
+          path: ${{ runner.temp }}/evidence/
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && matrix.suite == 'vm'
+        with:
+          name: vm-diagnostics
+          path: ${{ runner.temp }}/vm-results/
+          if-no-files-found: warn
+          retention-days: 14
+      - if: always()
+        env:
+          SUITE: ${{ matrix.suite }}
+          RESULT: ${{ job.status }}
+        run: |
+          printf '### %s\n\nResult: %s\n' "$SUITE" "$RESULT" >> "$GITHUB_STEP_SUMMARY"
+  heartbeat:
+    if: inputs.kind == 'heartbeat'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: candidate
+          path: ${{ runner.temp }}/candidate
+      - run: python3 scripts/ci.py restore --repo "$RUNNER_TEMP/source" --artifact-dir "$RUNNER_TEMP/candidate"
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      - run: nix shell --inputs-from . nixpkgs#jujutsu --command python3 scripts/ci.py heartbeat-record --repo "$RUNNER_TEMP/source" --artifact-dir "$RUNNER_TEMP/candidate" --evidence-dir "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: evidence-heartbeat
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14
+  aggregate:
+    if: always()
+    needs: [suites, heartbeat]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - env:
+          KIND: ${{ inputs.kind }}
+          SUITES_RESULT: ${{ needs.suites.result }}
+          HEARTBEAT_RESULT: ${{ needs.heartbeat.result }}
+        run: |
+          if [[ "$KIND" == heartbeat ]]; then
+            test "$HEARTBEAT_RESULT" = success
+          else
+            test "$SUITES_RESULT" = success
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: candidate
+          path: ${{ runner.temp }}/candidate
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: evidence-*
+          path: ${{ runner.temp }}/evidence
+      - run: python3 scripts/ci.py restore --repo "$RUNNER_TEMP/source" --artifact-dir "$RUNNER_TEMP/candidate"
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      - run: nix shell --inputs-from . nixpkgs#jujutsu --command python3 scripts/ci.py gate --repo "$RUNNER_TEMP/source" --artifact-dir "$RUNNER_TEMP/candidate" --evidence-dir "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: validated-evidence
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14
