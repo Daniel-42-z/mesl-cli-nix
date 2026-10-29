@@ -136,7 +136,30 @@ class CandidateTests(unittest.TestCase):
             )
         )
         mergeCall = githubCall.call_args_list[-1]
-        self.assertEqual(mergeCall.args[-2:], ("--match-head-commit", commit))
+        self.assertEqual(mergeCall.args[-3:], ("--match-head-commit", commit, "--auto"))
+
+    def test_merge_retries_only_clean_status_with_same_head(self):
+        cleanError = subprocess.CalledProcessError(
+            1, "gh", stderr="GraphQL: Pull request Pull request is in clean status"
+        )
+        with (
+            mock.patch.dict(os.environ, {"GH_REPO": "owner/repo"}),
+            mock.patch.object(ci, "Gh", side_effect=[cleanError, ""]) as githubCall,
+        ):
+            ci.RequestMerge(self.repo, "12", "candidate-sha")
+        first, retry = githubCall.call_args_list
+        self.assertEqual(first.args[:-1], retry.args)
+        self.assertEqual(first.args[-1], "--auto")
+        self.assertEqual(retry.args[-2:], ("--match-head-commit", "candidate-sha"))
+
+        otherError = subprocess.CalledProcessError(1, "gh", stderr="permission denied")
+        with (
+            mock.patch.dict(os.environ, {"GH_REPO": "owner/repo"}),
+            mock.patch.object(ci, "Gh", side_effect=otherError) as githubCall,
+        ):
+            with self.assertRaises(subprocess.CalledProcessError):
+                ci.RequestMerge(self.repo, "12", "candidate-sha")
+        self.assertEqual(githubCall.call_count, 1)
 
     def test_race_during_fetch_blocks_push(self):
         identity = self.PrepareRelease()

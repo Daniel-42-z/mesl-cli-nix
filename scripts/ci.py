@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import tarfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -98,12 +99,15 @@ def Verify(repo, artifactDir):
     return identity
 
 
-def Gh(repo, *arguments, payload=None):
+def Gh(repo, *arguments, payload=None, **kwargs):
     command = ["gh", *arguments]
     if payload is not None:
         command.extend(["--input", "-"])
     return Run(
-        command, repo, input=json.dumps(payload) if payload is not None else None
+        command,
+        repo,
+        input=json.dumps(payload) if payload is not None else None,
+        **kwargs,
     )
 
 
@@ -352,18 +356,30 @@ def Publish(repo, artifactDir, evidenceDir):
             )
         )
         pullNumber = str(result["number"])
-    Gh(
-        repo,
+    RequestMerge(repo, pullNumber, commit)
+
+
+def RequestMerge(repo, pullNumber, commit):
+    arguments = (
         "pr",
         "merge",
         pullNumber,
         "--repo",
         os.environ["GH_REPO"],
-        "--auto",
         "--squash",
         "--match-head-commit",
         commit,
     )
+    try:
+        Gh(repo, *arguments, "--auto", stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as error:
+        if "Pull request is in clean status" not in (error.stderr or ""):
+            if error.stderr:
+                print(error.stderr, file=sys.stderr, end="")
+            raise
+        # GitHub rejects enabling auto-merge when the PR becomes mergeable
+        # between the CLI's status query and its auto-merge request.
+        Gh(repo, *arguments)
 
 
 def Main():
