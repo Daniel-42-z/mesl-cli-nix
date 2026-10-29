@@ -24,7 +24,7 @@ with open('/dev/kvm', 'rb+', buffering=0) as kvmFile:
     os.close(vmFd)
 PY
     # Run fresh VMs even when the Nix build/test result is cached.
-    for testName in service user-service; do
+    for testName in service user-service kill-switch; do
       driverPath=$(nix build ".#checks.x86_64-linux.$testName.driver" --no-link --print-out-paths)
       mkdir -p "${RUNNER_TEMP:?}/vm-results/$testName" "$RUNNER_TEMP/vm-work/$testName"
       (

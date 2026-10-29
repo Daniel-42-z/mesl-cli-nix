@@ -77,6 +77,10 @@
             inherit pkgs;
             module = self.nixosModules.default;
           };
+          kill-switch = import ./tests/kill-switch.nix {
+            inherit pkgs;
+            module = self.nixosModules.default;
+          };
           user-service = import ./tests/user-service.nix {
             inherit pkgs;
             module = self.nixosModules.default;

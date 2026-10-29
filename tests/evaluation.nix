@@ -35,6 +35,21 @@ let
     autoStart = true;
     tun.enable = true;
   };
+  guarded = Evaluate {
+    enable = true;
+    tun.enable = true;
+    killSwitch.enable = true;
+  };
+  userGuarded = Evaluate {
+    enable = true;
+    user = "alice";
+    tun.enable = true;
+    killSwitch.enable = true;
+  };
+  invalidGuard = Evaluate {
+    enable = true;
+    killSwitch.enable = true;
+  };
   invalidUser = Evaluate {
     enable = true;
     user = "missing-user";
@@ -49,6 +64,21 @@ let
   rootClient = FindClient manual;
 in
 assert !(disabled.systemd.services ? mesl);
+assert !manual.services.mesl.killSwitch.enable;
+assert !(manual.systemd.services ? mesl-guard);
+assert guarded.systemd.services.mesl.serviceConfig.Restart == "always";
+assert builtins.length guarded.systemd.services.mesl.serviceConfig.ExecStartPre == 1;
+assert builtins.any (
+  rule:
+  rule.users == [ "alice" ]
+  && builtins.any (
+    command: lib.hasSuffix "/bin/mesl-guard arm" command.command && command.options == [ "NOPASSWD" ]
+  ) rule.commands
+) userGuarded.security.sudo.extraRules;
+assert builtins.length userGuarded.systemd.user.services.mesl.serviceConfig.ExecStartPre == 1;
+assert builtins.any (
+  check: lib.hasPrefix "services.mesl.killSwitch" check.message && !check.assertion
+) invalidGuard.assertions;
 assert !(builtins.elem "tun" disabled.boot.kernelModules);
 assert manual.systemd.services.mesl.wantedBy == [ ];
 assert automatic.systemd.services.mesl.wantedBy == [ "multi-user.target" ];

@@ -17,8 +17,8 @@ pkgs.runCommand "mesl-automation-check"
     chmod -R u+w source
     cd source
     python3 -m unittest discover -s tests -p 'test_*.py' -v
-    ruff check scripts tests
-    ruff format --check scripts tests
+    ruff check guard.py scripts tests
+    ruff format --check guard.py scripts tests
     actionlint .github/workflows/*.yml
     shellcheck scripts/validate.sh
     touch "$out"

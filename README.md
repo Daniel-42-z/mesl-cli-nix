@@ -184,3 +184,57 @@ GitHub disables public-repository scheduled workflows after **60 days without re
 A successful heartbeat merge creates a real default-branch commit and restarts the inactivity period, providing roughly 30 days of margin before GitHub's 60-day cutoff. Release merges and ordinary development commits postpone the next heartbeat. Heartbeat preparation remains available when MESL discovery fails; the workflow still reports that discovery failure after attempting maintenance.
 
 This depends on the workflow continuing to run and maintenance merges succeeding. Disabled Actions, exhausted runner capacity, authentication failures, or changed branch rules can prevent it; once GitHub disables execution, this workflow cannot reactivate itself. Resolve the cause and manually re-enable/dispatch the updater.
+
+## Optional internet kill switch
+
+The NixOS module provides an opt-in host-wide guard:
+
+```nix
+services.mesl = {
+  enable = true;
+  user = "yourusername"; # Omit for the root service.
+  autoStart = true;
+  tun.enable = true;
+  killSwitch.enable = true;
+  # killSwitch.interface = "Meta"; # Must match the actual TUN name.
+};
+```
+
+It is disabled by default. When enabled, applications can reach the internet
+through MESL's TUN, and MESL itself can make direct connections according to its
+routing rules. Other processes, including those belonging to the same user,
+cannot connect directly to public internet addresses. IPv4, IPv6, and forwarded
+container traffic are covered. Existing direct connections are also blocked.
+Loopback, private/link-local LAN destinations, DHCP, and IPv6 neighbor discovery
+remain available. LAN DNS remains available; public DNS must pass through MESL.
+The guard does not grant a general bypass to systemd-resolved: configure MESL's
+bootstrap resolver to use LAN DNS or connections made by MESL itself if needed.
+
+With autostart enabled the guard arms before network-pre.target. Otherwise it
+arms on the first managed service start. A failed start, crash, normal unexpected
+exit, service restart, or ordinary `systemctl stop` leaves it armed. The service
+retries unexpected exits every five seconds. A tunnel or proxy outage therefore
+cannot silently enable direct host internet access.
+
+Use these privileged commands for deliberate control:
+
+```sh
+sudo mesl-guard start
+sudo mesl-guard status
+sudo mesl-guard stop
+```
+
+`stop` stops the configured service and checks that its processes have exited
+before removing protection. It also works after a crash. `start` arms protection
+before starting the configured root or user service. Starting the service with
+systemctl also arms protection, but stopping it with systemctl does not release
+protection. Manual `mesl-cli up` instances are not supported while the guard is
+armed. The controller never exempts an entire user account.
+
+The guard owns a separate `inet mesl_guard` nftables table and survives ordinary
+firewall reloads. If using `networking.nftables`, keep
+`networking.nftables.flushRuleset = false`; configurations that flush the entire
+ruleset are rejected. Administrative commands that flush all nftables tables
+can remove protection. Disabling the option or MESL in a subsequent NixOS rebuild
+removes the guard table during activation. No changes to the standalone package
+or its CLI defaults are made.
