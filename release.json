@@ -1,15 +1,15 @@
 {
-  "version": "2.0.3",
+  "version": "2.0.4",
   "sources": {
     "x86_64-linux": {
-      "url": "https://api-zone-cn1.dirvt.com/download/mesl-linux-amd64.tar.gz",
-      "hash": "sha256-gFCvXwJdOZIbyXHEzy5cPEiuS2KQ/aeEih9iaaiDkHM=",
-      "size": 19474275
+      "url": "https://dl-zone1.rlose.com/download/mesl-linux-amd64.tar.gz?v=2.0.4",
+      "hash": "sha256-Ogk5AC/+pXOWzWl/nf3uLtwdxQvU/F6+CZFw3+jHYmM=",
+      "size": 19474291
     },
     "aarch64-linux": {
-      "url": "https://api-zone-cn1.dirvt.com/download/mesl-linux-arm64.tar.gz",
-      "hash": "sha256-7nCdCN/Oiy9nIz2wPFaZAmdflL0zylG/D7nOcOCQY0s=",
-      "size": 18025850
+      "url": "https://dl-zone1.rlose.com/download/mesl-linux-arm64.tar.gz?v=2.0.4",
+      "hash": "sha256-vwl0eIOq8O5EPMgD2R4BnNZxn4uMnHtHQ1C3Wt+n36I=",
+      "size": 18025854
     }
   }
 }
