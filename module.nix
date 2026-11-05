@@ -40,6 +40,7 @@ let
     builtins.toJSON {
       user = selectedUser;
       interface = cfg.killSwitch.interface;
+      inherit (cfg.killSwitch) allowedDiscoveryProtocols allowUdpBroadcast extraAllowedSubnets;
       nft = lib.getExe pkgs.nftables;
       systemctl = lib.getExe' pkgs.systemd "systemctl";
       runuser = lib.getExe' pkgs.util-linux "runuser";
@@ -102,6 +103,42 @@ in
         type = lib.types.strMatching "[a-zA-Z0-9_.-]{1,15}";
         default = "Meta";
         description = "MESL TUN interface name allowed by the kill switch.";
+      };
+      allowedDiscoveryProtocols = lib.mkOption {
+        type = lib.types.listOf (
+          lib.types.enum [
+            "mdns"
+            "ssdp"
+            "ws-discovery"
+            "llmnr"
+          ]
+        );
+        default = [
+          "mdns"
+          "ssdp"
+          "ws-discovery"
+          "llmnr"
+        ];
+        example = [ "mdns" ];
+        description = "Host discovery protocols allowed directly to their standard multicast destinations and UDP ports.";
+      };
+      allowUdpBroadcast = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Allow host UDP limited broadcasts for LAN discovery. DHCP client broadcasts remain allowed when disabled.";
+      };
+      extraAllowedSubnets = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        example = [
+          "100.64.0.0/24"
+          "2001:db8:1234::/64"
+        ];
+        description = ''
+          Additional trusted IPv4 or IPv6 CIDRs allowed directly for host and
+          forwarded traffic, including while MESL is unavailable. The guard
+          validates these before changing the firewall. This does not add routes.
+        '';
       };
     };
 

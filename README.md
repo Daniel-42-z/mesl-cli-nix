@@ -205,10 +205,41 @@ through MESL's TUN, and MESL itself can make direct connections according to its
 routing rules. Other processes, including those belonging to the same user,
 cannot connect directly to public internet addresses. IPv4, IPv6, and forwarded
 container traffic are covered. Existing direct connections are also blocked.
-Loopback, private/link-local LAN destinations, mDNS, DHCP, and IPv6 neighbor discovery
-remain available. LAN DNS remains available; public DNS must pass through MESL.
+Loopback, private/link-local LAN destinations, DHCP, and IPv6 neighbor discovery
+remain available. Host-originated mDNS, SSDP, WS-Discovery, LLMNR, and UDP limited
+broadcasts are allowed by default for printer, scanner, media-device, and other
+LAN discovery. IGMP and IPv6 MLD multicast membership control remains available
+with a hop limit of one. These discovery and broadcast exceptions do not grant
+a bypass to forwarded container traffic. LAN DNS is permitted by the guard;
+public DNS must pass through MESL.
 The guard does not grant a general bypass to systemd-resolved: configure MESL's
 bootstrap resolver to use LAN DNS or connections made by MESL itself if needed.
+
+Local exceptions can be restricted or extended declaratively:
+
+```nix
+services.mesl.killSwitch = {
+  # Default: [ "mdns" "ssdp" "ws-discovery" "llmnr" ]. Use [ ] to disable all.
+  allowedDiscoveryProtocols = [ "mdns" ];
+  allowUdpBroadcast = false; # Default: true. DHCP client broadcasts still work.
+  # Default: [ ]. Examples only; use prefixes belonging to your trusted network.
+  extraAllowedSubnets = [ "100.64.0.0/24" "2001:db8:1234::/64" ];
+};
+```
+
+The built-in address exceptions are IPv4 `10.0.0.0/8`, `172.16.0.0/12`,
+`192.168.0.0/16`, `169.254.0.0/16`, and IPv6 `fc00::/7`, `fe80::/10`.
+Additional CIDRs allow both host and forwarded traffic even when MESL is down.
+They are validated and normalized before firewall changes; invalid CIDRs leave
+the installed rules intact. The guard does not automatically trust every
+connected network: globally addressed local IPv6 devices and VPN prefixes
+outside the built-in ranges require explicit additional CIDRs.
+
+These rules permit direct local communication; they do not change Mihomo's
+routing or DNS interception, or open ports in the system's inbound firewall.
+They prevent direct public internet connections on proxy failure, but do not
+isolate browsers from local services or guarantee anonymity against a malicious
+local service. A remote service may also recognize the proxy's exit address.
 
 With autostart enabled the guard arms before network-pre.target. Otherwise it
 arms on the first managed service start. A failed start, crash, normal unexpected
@@ -238,3 +269,9 @@ ruleset are rejected. Administrative commands that flush all nftables tables
 can remove protection. Disabling the option or MESL in a subsequent NixOS rebuild
 removes the guard table during activation. No changes to the standalone package
 or its CLI defaults are made.
+
+After rebuilding with changed guard settings, restart the configured MESL
+service (`systemctl --user restart mesl` in user mode, or
+`sudo systemctl restart mesl` in root mode). Rearming atomically replaces the
+guard table, including any temporary rules added by hand. Revert the settings
+or input revision, rebuild, and restart the service to restore an earlier policy.

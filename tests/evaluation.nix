@@ -67,6 +67,15 @@ assert !(disabled.systemd.services ? mesl);
 assert !manual.services.mesl.killSwitch.enable;
 assert !(manual.systemd.services ? mesl-guard);
 assert guarded.systemd.services.mesl.serviceConfig.Restart == "always";
+assert
+  guarded.services.mesl.killSwitch.allowedDiscoveryProtocols == [
+    "mdns"
+    "ssdp"
+    "ws-discovery"
+    "llmnr"
+  ];
+assert guarded.services.mesl.killSwitch.allowUdpBroadcast;
+assert guarded.services.mesl.killSwitch.extraAllowedSubnets == [ ];
 assert builtins.length guarded.systemd.services.mesl.serviceConfig.ExecStartPre == 1;
 assert builtins.any (
   rule:
