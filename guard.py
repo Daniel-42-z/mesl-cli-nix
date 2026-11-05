@@ -61,6 +61,9 @@ def Main():
             )
             rules += 'oifname "lo" accept\n'
             rules += f"oifname {json.dumps(settings['interface'])} accept\n"
+            # mDNS is link-local discovery, including for driverless printers.
+            rules += "ip daddr 224.0.0.251 udp dport 5353 counter accept\n"
+            rules += "ip6 daddr ff02::fb udp dport 5353 counter accept\n"
             if allowService:
                 depth = len(cgroupPath.split("/"))
                 rules += f'socket cgroupv2 level {depth} "{cgroupPath}" accept\n'

@@ -205,7 +205,7 @@ through MESL's TUN, and MESL itself can make direct connections according to its
 routing rules. Other processes, including those belonging to the same user,
 cannot connect directly to public internet addresses. IPv4, IPv6, and forwarded
 container traffic are covered. Existing direct connections are also blocked.
-Loopback, private/link-local LAN destinations, DHCP, and IPv6 neighbor discovery
+Loopback, private/link-local LAN destinations, mDNS, DHCP, and IPv6 neighbor discovery
 remain available. LAN DNS remains available; public DNS must pass through MESL.
 The guard does not grant a general bypass to systemd-resolved: configure MESL's
 bootstrap resolver to use LAN DNS or connections made by MESL itself if needed.
